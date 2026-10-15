@@ -9,7 +9,7 @@ Application web interactive de gestion et de suivi de plan d'entraînement en **
 Toutes les modifications apportées par un entraîneur ou un athlète peuvent désormais être reflétées **instantanément en direct sur tous les écrans** (smartphone, tablette, PC) sans recharger la page.
 
 ### 🟢 Comment activer le Temps Réel (1 minute) :
-1. Créez un compte et un projet gratuit sur **[supabase.com](https://supabase.com)**.
+1. Créez un compte et un projet gratuit sur **[supabase.com](https://supabase.com)** (Nom : `RunPlanner`).
 2. Dans le menu de gauche de Supabase, ouvrez **SQL Editor**, collez le contenu du fichier [`supabase_setup.sql`](supabase_setup.sql) et cliquez sur **Run**.
 3. Récupérez vos identifiants dans **Project Settings → Data API** :
    - `Project URL`
