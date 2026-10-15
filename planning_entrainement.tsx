@@ -24,7 +24,11 @@ import {
   ExternalLink,
   X,
   Wifi,
-  WifiOff
+  WifiOff,
+  Lock,
+  LockOpen,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, getSupabaseClient } from './src/supabase';
 import { 
@@ -122,6 +126,83 @@ export default function App() {
   const [cloudKeyInput, setCloudKeyInput] = useState(() => getSupabaseConfig().key);
   const [copySuccess, setCopySuccess] = useState(false);
   const [remoteFlash, setRemoteFlash] = useState(false);
+
+  // --- MOT DE PASSE ---
+  const [isEditUnlocked, setIsEditUnlocked] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [passwordChangedSuccess, setPasswordChangedSuccess] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+
+  const hashPassword = async (password: string): Promise<string> => {
+    const msgBuffer = new TextEncoder().encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  // Mot de passe par défaut : "entraineur" (hashé)
+  const DEFAULT_HASH = 'c9b53c2db6e76ff69c879c9c965f88cff0bcf79d38acdc3b6ca7cf72e3e4c0f0';
+
+  const getStoredHash = (): string => {
+    return localStorage.getItem('runplanner_password_hash') || DEFAULT_HASH;
+  };
+
+  const handleTryEditMode = () => {
+    if (isEditUnlocked) {
+      setMode('edit');
+    } else {
+      setShowPasswordModal(true);
+      setTimeout(() => passwordInputRef.current?.focus(), 100);
+    }
+  };
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const hash = await hashPassword(passwordInput);
+    if (hash === getStoredHash()) {
+      setIsEditUnlocked(true);
+      setMode('edit');
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+    } else {
+      setPasswordError('Mot de passe incorrect. Réessayez.');
+      setPasswordInput('');
+    }
+  };
+
+  const handleLockEdit = () => {
+    setIsEditUnlocked(false);
+    setMode('view');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPasswordInput.length < 4) {
+      setPasswordChangeError('Le mot de passe doit contenir au moins 4 caractères.');
+      return;
+    }
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordChangeError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+    const hash = await hashPassword(newPasswordInput);
+    localStorage.setItem('runplanner_password_hash', hash);
+    setPasswordChangeError('');
+    setPasswordChangedSuccess(true);
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
+    setTimeout(() => {
+      setPasswordChangedSuccess(false);
+      setShowChangePasswordModal(false);
+    }, 2000);
+  };
 
   const isRemoteUpdateRef = useRef(false);
   const saveTimeoutRef = useRef<any>(null);
@@ -556,12 +637,35 @@ alter publication supabase_realtime add table public.training_plans;`;
                 <Eye size={18} /> Visualisation
               </button>
               <button 
-                onClick={() => setMode('edit')}
+                onClick={handleTryEditMode}
                 className={`flex items-center gap-2 px-5 py-2 rounded-lg font-medium transition-colors ${mode === 'edit' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                <Settings size={18} /> Édition
+                {isEditUnlocked
+                  ? <><Settings size={18} /> Édition</>
+                  : <><Lock size={18} /> Édition</>
+                }
               </button>
             </div>
+
+            {/* Boutons Verrouiller + Changer le mot de passe si déverrouillé */}
+            {isEditUnlocked && (
+              <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 p-1 rounded-xl">
+                <button
+                  onClick={() => setShowChangePasswordModal(true)}
+                  title="Changer le mot de passe d'édition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
+                >
+                  <Key size={14} /> Mot de passe
+                </button>
+                <button
+                  onClick={handleLockEdit}
+                  title="Verrouiller le mode édition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                >
+                  <LockOpen size={14} /> Verrouiller
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
@@ -966,6 +1070,125 @@ alter publication supabase_realtime add table public.training_plans;`;
 
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SAISIE MOT DE PASSE */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-8 shadow-2xl border border-slate-200 space-y-6">
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 mb-2">
+                <Lock size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Mode Édition</h3>
+              <p className="text-sm text-slate-500">Entrez le mot de passe pour modifier le plan d'entraînement.</p>
+            </div>
+
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div>
+                <input
+                  ref={passwordInputRef}
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={passwordInput}
+                  onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(''); }}
+                  className={`w-full text-center text-2xl tracking-widest bg-slate-50 border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all ${passwordError ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
+                />
+                {passwordError && (
+                  <p className="text-xs text-red-600 mt-2 text-center font-semibold animate-in slide-in-from-top-1">{passwordError}</p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowPasswordModal(false); setPasswordInput(''); setPasswordError(''); }}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold transition-colors text-sm"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-500/20 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  <LockOpen size={16} /> Déverrouiller
+                </button>
+              </div>
+
+              <p className="text-center text-xs text-slate-400">
+                Mot de passe par défaut : <span className="font-mono font-semibold text-slate-500">entraineur</span>
+              </p>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHANGER LE MOT DE PASSE */}
+      {showChangePasswordModal && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-8 shadow-2xl border border-slate-200 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl">
+                  <Key size={22} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Changer le mot de passe</h3>
+              </div>
+              <button onClick={() => { setShowChangePasswordModal(false); setPasswordChangeError(''); setNewPasswordInput(''); setConfirmPasswordInput(''); }}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {passwordChangedSuccess ? (
+              <div className="flex flex-col items-center gap-3 py-6 text-emerald-600">
+                <ShieldCheck size={48} />
+                <p className="font-bold text-lg">Mot de passe mis à jour !</p>
+              </div>
+            ) : (
+              <form onSubmit={handleChangePassword} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Nouveau mot de passe</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Minimum 4 caractères"
+                    value={newPasswordInput}
+                    onChange={(e) => { setNewPasswordInput(e.target.value); setPasswordChangeError(''); }}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Confirmer le mot de passe</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Répétez le mot de passe"
+                    value={confirmPasswordInput}
+                    onChange={(e) => { setConfirmPasswordInput(e.target.value); setPasswordChangeError(''); }}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                {passwordChangeError && (
+                  <p className="text-xs text-red-600 font-semibold">{passwordChangeError}</p>
+                )}
+                <div className="flex gap-3 pt-1">
+                  <button type="button"
+                    onClick={() => { setShowChangePasswordModal(false); setPasswordChangeError(''); setNewPasswordInput(''); setConfirmPasswordInput(''); }}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold transition-colors text-sm">
+                    Annuler
+                  </button>
+                  <button type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all text-sm flex items-center justify-center gap-2">
+                    <Key size={15} /> Enregistrer
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
