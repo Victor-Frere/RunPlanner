@@ -146,11 +146,19 @@ export default function App() {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  // Mot de passe par défaut : "entraineur" (hashé SHA-256)
-  const DEFAULT_HASH = 'a18ceb2154111dd7e9bdfe59a36ae187ef6880bdbe676fb47ca1bb796f3dcbc1';
+  const DEFAULT_HASH = 'd9e2c313277ebdf9689c6a16f37f0d13180fa356f806c53edd0793d204bb1c61';
+  const LEGACY_DEFAULT_HASHES = [
+    'a18ceb2154111dd7e9bdfe59a36ae187ef6880bdbe676fb47ca1bb796f3dcbc1',
+    '5d6d01b2ad6dae9012e06b1b74c4692bc4992f8f1f27bad7a7cb3a81639a5597',
+  ];
 
   const getStoredHash = (): string => {
-    return localStorage.getItem('runplanner_password_hash') || DEFAULT_HASH;
+    const storedHash = localStorage.getItem('runplanner_password_hash');
+    if (storedHash && LEGACY_DEFAULT_HASHES.includes(storedHash)) {
+      localStorage.setItem('runplanner_password_hash', DEFAULT_HASH);
+      return DEFAULT_HASH;
+    }
+    return storedHash || DEFAULT_HASH;
   };
 
   const handleTryEditMode = () => {
@@ -1119,9 +1127,6 @@ alter publication supabase_realtime add table public.training_plans;`;
                 </button>
               </div>
 
-              <p className="text-center text-xs text-slate-400">
-                Mot de passe par défaut : <span className="font-mono font-semibold text-slate-500">entraineur</span>
-              </p>
             </form>
           </div>
         </div>
