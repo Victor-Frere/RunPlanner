@@ -27,8 +27,6 @@ import {
   WifiOff,
   Lock,
   LockOpen,
-  Key,
-  ShieldCheck
 } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, getSupabaseClient } from './src/supabase';
 import { 
@@ -132,11 +130,6 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [newPasswordInput, setNewPasswordInput] = useState('');
-  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
-  const [passwordChangeError, setPasswordChangeError] = useState('');
-  const [passwordChangedSuccess, setPasswordChangedSuccess] = useState(false);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
   const hashPassword = async (password: string): Promise<string> => {
@@ -147,19 +140,6 @@ export default function App() {
   };
 
   const DEFAULT_HASH = 'd9e2c313277ebdf9689c6a16f37f0d13180fa356f806c53edd0793d204bb1c61';
-  const LEGACY_DEFAULT_HASHES = [
-    'a18ceb2154111dd7e9bdfe59a36ae187ef6880bdbe676fb47ca1bb796f3dcbc1',
-    '5d6d01b2ad6dae9012e06b1b74c4692bc4992f8f1f27bad7a7cb3a81639a5597',
-  ];
-
-  const getStoredHash = (): string => {
-    const storedHash = localStorage.getItem('runplanner_password_hash');
-    if (storedHash && LEGACY_DEFAULT_HASHES.includes(storedHash)) {
-      localStorage.setItem('runplanner_password_hash', DEFAULT_HASH);
-      return DEFAULT_HASH;
-    }
-    return storedHash || DEFAULT_HASH;
-  };
 
   const handleTryEditMode = () => {
     if (isEditUnlocked) {
@@ -173,7 +153,7 @@ export default function App() {
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const hash = await hashPassword(passwordInput);
-    if (hash === getStoredHash()) {
+    if (hash === DEFAULT_HASH) {
       setIsEditUnlocked(true);
       setMode('edit');
       setShowPasswordModal(false);
@@ -188,28 +168,6 @@ export default function App() {
   const handleLockEdit = () => {
     setIsEditUnlocked(false);
     setMode('view');
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPasswordInput.length < 4) {
-      setPasswordChangeError('Le mot de passe doit contenir au moins 4 caractères.');
-      return;
-    }
-    if (newPasswordInput !== confirmPasswordInput) {
-      setPasswordChangeError('Les mots de passe ne correspondent pas.');
-      return;
-    }
-    const hash = await hashPassword(newPasswordInput);
-    localStorage.setItem('runplanner_password_hash', hash);
-    setPasswordChangeError('');
-    setPasswordChangedSuccess(true);
-    setNewPasswordInput('');
-    setConfirmPasswordInput('');
-    setTimeout(() => {
-      setPasswordChangedSuccess(false);
-      setShowChangePasswordModal(false);
-    }, 2000);
   };
 
   const isRemoteUpdateRef = useRef(false);
@@ -657,16 +615,9 @@ alter publication supabase_realtime add table public.training_plans;`;
               </button>
             </div>
 
-            {/* Boutons Verrouiller + Changer le mot de passe si déverrouillé */}
+            {/* Bouton Verrouiller si déverrouillé */}
             {isEditUnlocked && (
               <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 p-1 rounded-xl">
-                <button
-                  onClick={() => setShowChangePasswordModal(true)}
-                  title="Changer le mot de passe d'édition"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
-                >
-                  <Key size={14} /> Mot de passe
-                </button>
                 <button
                   onClick={handleLockEdit}
                   title="Verrouiller le mode édition"
@@ -1130,72 +1081,6 @@ alter publication supabase_realtime add table public.training_plans;`;
               </div>
 
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CHANGER LE MOT DE PASSE */}
-      {showChangePasswordModal && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-8 shadow-2xl border border-slate-200 space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl">
-                  <Key size={22} />
-                </div>
-                <h3 className="text-lg font-bold text-slate-900">Changer le mot de passe</h3>
-              </div>
-              <button onClick={() => { setShowChangePasswordModal(false); setPasswordChangeError(''); setNewPasswordInput(''); setConfirmPasswordInput(''); }}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-
-            {passwordChangedSuccess ? (
-              <div className="flex flex-col items-center gap-3 py-6 text-emerald-600">
-                <ShieldCheck size={48} />
-                <p className="font-bold text-lg">Mot de passe mis à jour !</p>
-              </div>
-            ) : (
-              <form onSubmit={handleChangePassword} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Nouveau mot de passe</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Minimum 4 caractères"
-                    value={newPasswordInput}
-                    onChange={(e) => { setNewPasswordInput(e.target.value); setPasswordChangeError(''); }}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Confirmer le mot de passe</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Répétez le mot de passe"
-                    value={confirmPasswordInput}
-                    onChange={(e) => { setConfirmPasswordInput(e.target.value); setPasswordChangeError(''); }}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-                {passwordChangeError && (
-                  <p className="text-xs text-red-600 font-semibold">{passwordChangeError}</p>
-                )}
-                <div className="flex gap-3 pt-1">
-                  <button type="button"
-                    onClick={() => { setShowChangePasswordModal(false); setPasswordChangeError(''); setNewPasswordInput(''); setConfirmPasswordInput(''); }}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold transition-colors text-sm">
-                    Annuler
-                  </button>
-                  <button type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all text-sm flex items-center justify-center gap-2">
-                    <Key size={15} /> Enregistrer
-                  </button>
-                </div>
-              </form>
-            )}
           </div>
         </div>
       )}
