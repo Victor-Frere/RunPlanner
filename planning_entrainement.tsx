@@ -1,22 +1,32 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Calendar, 
   Settings, 
   Eye, 
   Plus, 
-  ChevronDown,
-  ChevronUp,
-  Activity,
-  Map,
-  Timer,
-  Zap,
-  Coffee,
-  TrendingUp,
+  ChevronDown, 
+  ChevronUp, 
+  Activity, 
+  Map, 
+  Timer, 
+  Zap, 
+  Coffee, 
+  TrendingUp, 
   Edit3,
   Download,
   Upload,
-  RotateCcw
+  RotateCcw,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Check,
+  Copy,
+  ExternalLink,
+  X,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
+import { getSupabaseConfig, saveSupabaseConfig, getSupabaseClient } from './src/supabase';
 import { 
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
@@ -98,19 +108,143 @@ export default function App() {
     }
   });
 
+  const [selectedWeekId, setSelectedWeekId] = useState(initialData[0].id);
+  const [selectedDayId, setSelectedDayId] = useState(null);
+  
+  // Gestion de l'accordéon en mode édition
+  const [expandedWeeks, setExpandedWeeks] = useState([initialData[0].id]);
+
+  // --- TEMPS RÉEL (SUPABASE) ---
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'connecting' | 'connected' | 'saving' | 'error'>('idle');
+  const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null);
+  const [showCloudModal, setShowCloudModal] = useState(false);
+  const [cloudUrlInput, setCloudUrlInput] = useState(() => getSupabaseConfig().url);
+  const [cloudKeyInput, setCloudKeyInput] = useState(() => getSupabaseConfig().key);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [remoteFlash, setRemoteFlash] = useState(false);
+
+  const isRemoteUpdateRef = useRef(false);
+  const saveTimeoutRef = useRef<any>(null);
+
+  // 1. Initialisation de la connexion Supabase et écoute en temps réel
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setSyncStatus('idle');
+      return;
+    }
+
+    setSyncStatus('connecting');
+
+    const initSupabase = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('training_plans')
+          .select('weeks, updated_at')
+          .eq('id', 'default')
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          console.warn('Supabase fetch notice:', error);
+          setSyncStatus('error');
+          return;
+        }
+
+        if (data && data.weeks && Array.isArray(data.weeks)) {
+          isRemoteUpdateRef.current = true;
+          setWeeks(data.weeks);
+          if (data.weeks.length > 0) {
+            setSelectedWeekId(data.weeks[0].id);
+          }
+          setLastSyncedTime(new Date(data.updated_at || Date.now()).toLocaleTimeString());
+        } else {
+          await supabase.from('training_plans').upsert({
+            id: 'default',
+            weeks: weeks,
+            updated_at: new Date().toISOString()
+          });
+        }
+        setSyncStatus('connected');
+      } catch (err) {
+        console.error('Erreur initialisation Supabase:', err);
+        setSyncStatus('error');
+      }
+    };
+
+    initSupabase();
+
+    const channel = supabase
+      .channel('realtime_training_plans')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'training_plans' },
+        (payload: any) => {
+          if (payload.new && payload.new.weeks && Array.isArray(payload.new.weeks)) {
+            isRemoteUpdateRef.current = true;
+            setWeeks(payload.new.weeks);
+            setLastSyncedTime(new Date().toLocaleTimeString());
+            setRemoteFlash(true);
+            setTimeout(() => setRemoteFlash(false), 3000);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setSyncStatus('connected');
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+          setSyncStatus('error');
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // 2. Synchronisation automatique vers Supabase et localStorage
   useEffect(() => {
     try {
       localStorage.setItem('runplanner_weeks', JSON.stringify(weeks));
     } catch (e) {
       console.error(e);
     }
-  }, [weeks]);
 
-  const [selectedWeekId, setSelectedWeekId] = useState(initialData[0].id);
-  const [selectedDayId, setSelectedDayId] = useState(null);
-  
-  // Gestion de l'accordéon en mode édition
-  const [expandedWeeks, setExpandedWeeks] = useState([initialData[0].id]);
+    if (isRemoteUpdateRef.current) {
+      isRemoteUpdateRef.current = false;
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    setSyncStatus('saving');
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const { error } = await supabase.from('training_plans').upsert({
+          id: 'default',
+          weeks: weeks,
+          updated_at: new Date().toISOString()
+        });
+
+        if (error) {
+          console.error('Erreur de synchronisation Supabase:', error);
+          setSyncStatus('error');
+        } else {
+          setSyncStatus('connected');
+          setLastSyncedTime(new Date().toLocaleTimeString());
+        }
+      } catch (err) {
+        console.error('Erreur réseau sync:', err);
+        setSyncStatus('error');
+      }
+    }, 400);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [weeks]);
 
   // --- STATS D'UNE SEMAINE ---
   const getWeekStats = (week) => {
@@ -247,6 +381,44 @@ export default function App() {
     }
   };
 
+  const handleSaveCloudConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveSupabaseConfig(cloudUrlInput, cloudKeyInput);
+    setShowCloudModal(false);
+    window.location.reload();
+  };
+
+  const handleClearCloudConfig = () => {
+    if (window.confirm('Voulez-vous déconnecter Supabase ? Les modifications ne seront plus partagées en direct.')) {
+      saveSupabaseConfig('', '');
+      setCloudUrlInput('');
+      setCloudKeyInput('');
+      setShowCloudModal(false);
+      window.location.reload();
+    }
+  };
+
+  const sqlSetupCode = `-- 1. Table des plans
+create table if not exists public.training_plans (
+  id text primary key default 'default',
+  weeks jsonb not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 2. Accès public
+alter table public.training_plans enable row level security;
+drop policy if exists "Accès public complet aux plans" on public.training_plans;
+create policy "Accès public complet aux plans" on public.training_plans for all using (true) with check (true);
+
+-- 3. Activation du temps réel
+alter publication supabase_realtime add table public.training_plans;`;
+
+  const copySqlToClipboard = () => {
+    navigator.clipboard.writeText(sqlSetupCode);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  };
+
   // --- RENDU UI ---
   const getIconForType = (type) => {
     switch(type) {
@@ -290,12 +462,67 @@ export default function App() {
             <h1 className="text-2xl font-bold text-slate-900">RunPlanner Pro</h1>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              Auto-sauvegardé
-            </div>
+            {/* Statut Temps Réel Cloud */}
+            {syncStatus === 'connected' && (
+              <button 
+                onClick={() => setShowCloudModal(true)}
+                title="Synchronisation Temps Réel active. Cliquez pour voir les paramètres"
+                className="flex items-center gap-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl transition-all shadow-sm"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span>En direct</span>
+                {lastSyncedTime && <span className="text-[10px] text-emerald-600 font-normal">({lastSyncedTime})</span>}
+              </button>
+            )}
+
+            {syncStatus === 'saving' && (
+              <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl font-medium">
+                <RefreshCw size={13} className="animate-spin text-blue-600" />
+                <span>Envoi en direct...</span>
+              </div>
+            )}
+
+            {syncStatus === 'connecting' && (
+              <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl font-medium">
+                <RefreshCw size={13} className="animate-spin text-amber-600" />
+                <span>Connexion Cloud...</span>
+              </div>
+            )}
+
+            {syncStatus === 'error' && (
+              <button 
+                onClick={() => setShowCloudModal(true)}
+                title="Erreur de connexion. Cliquez pour configurer Supabase"
+                className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-3 py-1.5 rounded-xl transition-all"
+              >
+                <WifiOff size={13} className="text-rose-500" />
+                <span>Erreur Cloud</span>
+              </button>
+            )}
+
+            {syncStatus === 'idle' && (
+              <button 
+                onClick={() => setShowCloudModal(true)}
+                title="Cliquez pour activer le partage en direct pour tout le monde"
+                className="flex items-center gap-2 text-xs font-bold text-amber-800 bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-300 px-3.5 py-1.5 rounded-xl transition-all shadow-sm"
+              >
+                <Cloud size={14} className="text-amber-600" />
+                <span>Activer le Temps Réel</span>
+              </button>
+            )}
 
             <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200">
+              <button 
+                onClick={() => setShowCloudModal(true)}
+                title="Paramètres de synchronisation Cloud (Supabase)"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-white rounded-lg transition-colors"
+              >
+                <Cloud size={15} />
+              </button>
+
               <button 
                 onClick={exportPlan}
                 title="Exporter vos données au format JSON"
@@ -602,6 +829,147 @@ export default function App() {
         )}
 
       </div>
+
+      {/* Toast de notification de mise à jour en direct */}
+      {remoteFlash && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-300 z-50">
+          <div className="p-2 bg-emerald-500 rounded-xl text-white">
+            <Check size={18} />
+          </div>
+          <div>
+            <p className="text-sm font-bold">Plan mis à jour en direct !</p>
+            <p className="text-xs text-slate-300">Modifications synchronisées depuis le Cloud.</p>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIGURATION CLOUD / TEMPS RÉEL */}
+      {showCloudModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 shadow-2xl border border-slate-200 space-y-6 my-8">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-2xl">
+                  <Cloud size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">Synchronisation Temps Réel (Supabase)</h3>
+                  <p className="text-xs text-slate-500">Partagez votre plan en direct avec vos athlètes et entraîneurs</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowCloudModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* État actuel */}
+            <div className={`p-4 rounded-2xl border flex items-center justify-between ${syncStatus === 'connected' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+              <div className="flex items-center gap-3">
+                {syncStatus === 'connected' ? <Wifi size={22} className="text-emerald-600" /> : <WifiOff size={22} className="text-amber-600" />}
+                <div>
+                  <p className="font-bold text-sm">
+                    {syncStatus === 'connected' ? 'Connecté au Cloud en direct' : 'Non connecté au Cloud'}
+                  </p>
+                  <p className="text-xs opacity-80">
+                    {syncStatus === 'connected' ? 'Toutes les modifications sont synchronisées instantanément pour tout le monde.' : 'Le plan est actuellement stocké uniquement dans le navigateur local.'}
+                  </p>
+                </div>
+              </div>
+              {syncStatus === 'connected' && (
+                <button 
+                  onClick={handleClearCloudConfig}
+                  className="text-xs text-red-600 font-semibold hover:underline bg-white/70 px-3 py-1.5 rounded-lg border border-red-200"
+                >
+                  Déconnecter
+                </button>
+              )}
+            </div>
+
+            {/* Instructions simples en 3 étapes */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Comment activer la synchronisation gratuite (1 minute) :</h4>
+              
+              <ol className="space-y-3 text-sm text-slate-600 list-decimal list-inside">
+                <li className="leading-relaxed">
+                  Créez un projet gratuit sur{' '}
+                  <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-blue-600 font-semibold underline inline-flex items-center gap-1">
+                    supabase.com <ExternalLink size={12} />
+                  </a>
+                </li>
+                <li className="leading-relaxed">
+                  Allez dans l'onglet <strong>SQL Editor</strong> de Supabase et exécutez ce script :
+                  <div className="relative mt-2">
+                    <pre className="bg-slate-900 text-slate-100 p-3 rounded-xl text-xs overflow-x-auto font-mono max-h-36">
+                      {sqlSetupCode}
+                    </pre>
+                    <button 
+                      onClick={copySqlToClipboard}
+                      type="button"
+                      className="absolute top-2 right-2 flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-lg backdrop-blur-sm transition-colors"
+                    >
+                      {copySuccess ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                      {copySuccess ? 'Copié !' : 'Copier SQL'}
+                    </button>
+                  </div>
+                </li>
+                <li className="leading-relaxed">
+                  Récupérez vos identifiants dans <strong>Project Settings → Data API</strong> et collez-les ci-dessous :
+                </li>
+              </ol>
+
+              {/* Formulaire URL & Clé */}
+              <form onSubmit={handleSaveCloudConfig} className="space-y-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Project URL</label>
+                  <input 
+                    type="url"
+                    required
+                    placeholder="https://xyzcompany.supabase.co"
+                    value={cloudUrlInput}
+                    onChange={(e) => setCloudUrlInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Project API Key (Anon / Public)</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    value={cloudKeyInput}
+                    onChange={(e) => setCloudKeyInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowCloudModal(false)}
+                    className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-semibold transition-colors"
+                  >
+                    Fermer
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+                  >
+                    <Check size={16} /> Enregistrer et Connecter
+                  </button>
+                </div>
+              </form>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
