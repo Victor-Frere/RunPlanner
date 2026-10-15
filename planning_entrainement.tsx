@@ -146,8 +146,8 @@ export default function App() {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  // Mot de passe par défaut : "entraineur" (hashé)
-  const DEFAULT_HASH = 'c9b53c2db6e76ff69c879c9c965f88cff0bcf79d38acdc3b6ca7cf72e3e4c0f0';
+  // Mot de passe par défaut : "entraineur" (hashé SHA-256)
+  const DEFAULT_HASH = 'a18ceb2154111dd7e9bdfe59a36ae187ef6880bdbe676fb47ca1bb796f3dcbc1';
 
   const getStoredHash = (): string => {
     return localStorage.getItem('runplanner_password_hash') || DEFAULT_HASH;
