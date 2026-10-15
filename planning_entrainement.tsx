@@ -552,7 +552,7 @@ alter publication supabase_realtime add table public.training_plans;`;
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {/* Statut Temps Réel Cloud */}
-            {syncStatus === 'connected' && (
+            {mode === 'edit' && syncStatus === 'connected' && (
               <button 
                 onClick={() => setShowCloudModal(true)}
                 title="Synchronisation Temps Réel active. Cliquez pour voir les paramètres"
@@ -581,7 +581,7 @@ alter publication supabase_realtime add table public.training_plans;`;
               </div>
             )}
 
-            {syncStatus === 'error' && (
+            {mode === 'edit' && syncStatus === 'error' && (
               <button 
                 onClick={() => setShowCloudModal(true)}
                 title="Erreur de connexion. Cliquez pour configurer Supabase"
@@ -592,7 +592,7 @@ alter publication supabase_realtime add table public.training_plans;`;
               </button>
             )}
 
-            {syncStatus === 'idle' && (
+            {mode === 'edit' && syncStatus === 'idle' && (
               <button 
                 onClick={() => setShowCloudModal(true)}
                 title="Cliquez pour activer le partage en direct pour tout le monde"
@@ -603,6 +603,7 @@ alter publication supabase_realtime add table public.training_plans;`;
               </button>
             )}
 
+            {mode === 'edit' && (
             <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200">
               <button 
                 onClick={() => setShowCloudModal(true)}
@@ -636,6 +637,7 @@ alter publication supabase_realtime add table public.training_plans;`;
                 <RotateCcw size={14} />
               </button>
             </div>
+            )}
 
             <div className="flex bg-slate-100 p-1 rounded-xl">
               <button 
